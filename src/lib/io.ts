@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import type { Board } from '../model/types';
 import { fromJsonCanvas, ImportError, toJsonCanvas, toMarkdownOutline } from '../model/jsonCanvas';
 import { boundsOf } from '../model/geometry';
@@ -7,7 +8,33 @@ import { toast } from '../ui/toast';
 
 const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'mind-map';
 
+const isNative = Capacitor.isNativePlatform();
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '');
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/** Native app: write the file to the cache and open Android's share sheet (save to Files, Drive, send…). */
+async function shareNative(blob: Blob, filename: string) {
+  const [{ Filesystem, Directory }, { Share }] = await Promise.all([import('@capacitor/filesystem'), import('@capacitor/share')]);
+  const res = await Filesystem.writeFile({ path: filename, data: await blobToBase64(blob), directory: Directory.Cache });
+  try {
+    await Share.share({ title: filename, files: [res.uri], dialogTitle: `Save or send ${filename}` });
+  } catch (err) {
+    if (!/cancel/i.test(String((err as Error)?.message ?? err))) {
+      console.error(err);
+      toast('Could not share the file');
+    }
+  }
+}
+
 export async function downloadBlob(blob: Blob, filename: string) {
+  if (isNative) return shareNative(blob, filename);
   // Prefer the native share sheet on touch devices that support sharing files
   const file = new File([blob], filename, { type: blob.type });
   const touch = matchMedia('(pointer: coarse)').matches;
@@ -105,7 +132,8 @@ export function pickFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.canvas,.json,application/json';
+    // Android's picker doesn't know the .canvas type, so allow any file there
+    if (!isNative) input.accept = '.canvas,.json,application/json';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.click();
   });

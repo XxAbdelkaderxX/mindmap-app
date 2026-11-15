@@ -10,6 +10,7 @@ import { initPersistence } from './store/persistence';
 import { useShortcuts } from './lib/shortcuts';
 import { importFile } from './lib/io';
 import { ensureVisible } from './canvas/viewport';
+import { useAndroidBack } from './lib/native';
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -33,6 +34,12 @@ export default function App() {
   }, []);
 
   useShortcuts({ blocked: panelOpen || helpOpen, onEscapeOverlay: () => (setHelpOpen(false), setPanelOpen(false)) });
+
+  useAndroidBack(() => {
+    if (helpOpen) return setHelpOpen(false), true;
+    if (panelOpen) return setPanelOpen(false), true;
+    return false;
+  });
 
   // Open files passed by the OS (installed PWA "Open with…")
   useEffect(() => {

@@ -1,0 +1,52 @@
+name: Build Android app
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm test
+      - name: Build web app and copy it into the Android project
+        run: |
+          npm run build
+          npx cap sync android
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk CanvasMind.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CanvasMind-apk
+          path: CanvasMind.apk
+      - name: Publish as a downloadable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest CanvasMind.apk \
+            --target "$GITHUB_SHA" \
+            --title "Canvas Mind for Android (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Download **CanvasMind.apk** below on your Android phone, open it and tap Install. New builds install as updates and keep your mind maps."
